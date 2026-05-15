@@ -1,8 +1,23 @@
+"""
+STEP 2 — Community Detection using Infomap + Logistic Regression
+Slashdot Signed Social Network
 
+Approach:
+  1. Infomap on positive-only directed subgraph
+  2. Extract node-level structural features
+  3. Train Logistic Regression to predict community membership
+  4. Score communities by quality
+
+Output:
+  outputs/community/community_assignments.csv
+  outputs/community/community_scores.csv
+  outputs/community/classifier_report.txt
+"""
 
 import pandas as pd
 import numpy as np
 import networkx as nx
+from infomap import Infomap
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -35,115 +50,126 @@ print(f"    Nodes : {n:,}  |  Edges : {len(df):,}")
 # ── 2. BUILD GRAPHS ──────────────────────────────────────────
 print("\n[2] Building graphs...")
 
-# Positive-only undirected for community detection
-G_pos = nx.Graph()
-G_pos.add_nodes_from(all_nodes)
-for _, row in pos_df.iterrows():
-    G_pos.add_edge(int(row["from_node"]), int(row["to_node"]))
-
-# Full signed directed for feature extraction and scoring
+# Full signed directed graph for scoring and features
 G_signed = nx.DiGraph()
 for _, row in df.iterrows():
     G_signed.add_edge(int(row["from_node"]), int(row["to_node"]),
                       sign=int(row["sign"]))
 
-print(f"    Positive-only graph : {G_pos.number_of_edges():,} edges")
-print(f"    Signed graph        : {G_signed.number_of_edges():,} edges")
+print(f"    Signed graph : {G_signed.number_of_nodes():,} nodes, "
+      f"{G_signed.number_of_edges():,} edges")
 
-# ── 3. LABEL PROPAGATION ─────────────────────────────────────
-print("\n[3] Running Label Propagation community detection...")
+# ── 3. INFOMAP COMMUNITY DETECTION ───────────────────────────
+print("\n[3] Running Infomap on positive-only directed subgraph...")
 
-communities_generator = nx.algorithms.community.label_propagation_communities(G_pos)
-communities_list      = list(communities_generator)
+# Infomap works with integer node IDs starting from 1
+# We create a mapping from original node IDs to 1-based IDs
+node_to_infomap = {node: i+1 for i, node in enumerate(all_nodes)}
+infomap_to_node = {i+1: node for i, node in enumerate(all_nodes)}
 
-# Build partition dict {node: community_id}
+im = Infomap(
+    directed=True,       # respect edge direction
+    num_trials=10,       # run 10 times and take best result
+    silent=True          # suppress verbose output
+)
+
+# Add only positive edges to Infomap
+# Infomap finds communities based on information flow
+# Positive edges = channels through which influence flows
+print("    Adding positive edges to Infomap...")
+for _, row in pos_df.iterrows():
+    u = node_to_infomap[int(row["from_node"])]
+    v = node_to_infomap[int(row["to_node"])]
+    im.add_link(u, v)
+
+# Add all nodes to ensure isolated nodes are included
+for node in all_nodes:
+    im.add_node(node_to_infomap[node])
+
+print("    Running Infomap optimisation (10 trials)...")
+im.run()
+
+# Extract partition
 partition = {}
-for comm_id, members in enumerate(communities_list):
-    for node in members:
-        partition[node] = comm_id
+for node_id, module in im.modules:
+    original_node = infomap_to_node[node_id]
+    partition[original_node] = module
 
-# Assign untagged nodes (nodes with no positive edges) to community -1
+# Handle any nodes not assigned by Infomap
 for node in all_nodes:
     if node not in partition:
-        partition[node] = -1
+        partition[node] = 0
 
-n_communities = len(communities_list)
-sizes         = sorted([len(c) for c in communities_list], reverse=True)
+# ── 4. ANALYSE RAW INFOMAP COMMUNITIES ───────────────────────
+print("\n[4] Analysing Infomap communities...")
 
-print(f"    Communities found : {n_communities}")
-print(f"    Largest           : {sizes[0]:,} nodes")
-print(f"    Smallest          : {sizes[-1]:,} nodes")
-print(f"    Top 5 sizes       : {sizes[:5]}")
+raw_communities = {}
+for node, comm_id in partition.items():
+    raw_communities.setdefault(comm_id, set()).add(node)
 
-# Keep only top N_CLUSTERS communities by size for manageability
-# Remap small communities to their nearest large community later
-top_comm_ids = [comm_id for comm_id, _ in
-                sorted(enumerate([len(c) for c in communities_list]),
-                       key=lambda x: x[1], reverse=True)[:N_CLUSTERS]]
+raw_sizes = sorted([len(v) for v in raw_communities.values()], reverse=True)
+print(f"    Total communities found : {len(raw_communities)}")
+print(f"    Largest community       : {raw_sizes[0]:,} nodes")
+print(f"    Smallest community      : {raw_sizes[-1]:,} nodes")
+print(f"    Top 10 sizes            : {raw_sizes[:10]}")
 
-# Remap: nodes in top communities keep their id, others mapped to closest top
-top_comm_set = set(top_comm_ids)
-id_remap     = {old: new for new, old in enumerate(top_comm_ids)}
+# Keep top N_CLUSTERS communities by size
+# Remap remaining nodes to nearest large community
+print(f"\n    Keeping top {N_CLUSTERS} communities by size...")
+
+top_comms = sorted(raw_communities.items(),
+                   key=lambda x: len(x[1]), reverse=True)[:N_CLUSTERS]
+top_comm_ids  = [comm_id for comm_id, _ in top_comms]
+top_comm_set  = set(top_comm_ids)
+id_remap      = {old: new for new, old in enumerate(top_comm_ids)}
 
 remapped_partition = {}
 for node, comm_id in partition.items():
     if comm_id in top_comm_set:
         remapped_partition[node] = id_remap[comm_id]
     else:
-        # Assign to community 0 (largest) as default for small/isolated
+        # Assign to largest community
         remapped_partition[node] = 0
 
-print(f"\n    Keeping top {N_CLUSTERS} communities by size.")
-print(f"    Nodes remapped to top communities: {len(remapped_partition):,}")
+# Final community sizes after remapping
+final_communities = {}
+for node, comm_id in remapped_partition.items():
+    final_communities.setdefault(comm_id, set()).add(node)
 
-# ── 4. EXTRACT NODE FEATURES ─────────────────────────────────
-print("\n[4] Extracting node features for Logistic Regression...")
+final_sizes = sorted([len(v) for v in final_communities.values()], reverse=True)
+print(f"    Final community sizes   : {final_sizes}")
 
-# Precompute degree stats per node
-pos_out = pos_df.groupby("from_node").size().to_dict()
-neg_out = neg_df.groupby("from_node").size().to_dict()
-pos_in  = pos_df.groupby("to_node").size().to_dict()
-neg_in  = neg_df.groupby("to_node").size().to_dict()
+# ── 5. EXTRACT NODE FEATURES ─────────────────────────────────
+print("\n[5] Extracting node features...")
+
+pos_out   = pos_df.groupby("from_node").size().to_dict()
+neg_out   = neg_df.groupby("from_node").size().to_dict()
+pos_in    = pos_df.groupby("to_node").size().to_dict()
+neg_in    = neg_df.groupby("to_node").size().to_dict()
 total_out = df.groupby("from_node").size().to_dict()
 total_in  = df.groupby("to_node").size().to_dict()
 
 def get_features(node):
-    """
-    Extract structural features for a node.
-    These capture its position in the signed network.
-    """
-    po  = pos_out.get(node, 0)
-    no  = neg_out.get(node, 0)
-    pi  = pos_in.get(node, 0)
-    ni  = neg_in.get(node, 0)
+    po      = pos_out.get(node, 0)
+    no      = neg_out.get(node, 0)
+    pi      = pos_in.get(node, 0)
+    ni      = neg_in.get(node, 0)
     tot_out = total_out.get(node, 0)
     tot_in  = total_in.get(node, 0)
     tot     = tot_out + tot_in
 
-    # Positivity rates
-    pos_out_rate = po / tot_out if tot_out > 0 else 0
-    pos_in_rate  = pi / tot_in  if tot_in  > 0 else 0
-
-    # Signed degree = positive degree - negative degree
-    signed_out = po - no
-    signed_in  = pi - ni
-
-    # Neighbour agreement: how often do neighbours agree in sign
-    # approximated as ratio of positive to total edges
+    pos_out_rate     = po / tot_out if tot_out > 0 else 0
+    pos_in_rate      = pi / tot_in  if tot_in  > 0 else 0
+    signed_out       = po - no
+    signed_in        = pi - ni
     overall_pos_rate = (po + pi) / tot if tot > 0 else 0
 
     return [
-        po,              # positive out-degree
-        no,              # negative out-degree
-        pi,              # positive in-degree
-        ni,              # negative in-degree
-        tot_out,         # total out-degree
-        tot_in,          # total in-degree
-        signed_out,      # signed out-degree
-        signed_in,       # signed in-degree
-        pos_out_rate,    # fraction of outgoing that are positive
-        pos_in_rate,     # fraction of incoming that are positive
-        overall_pos_rate # overall positivity rate
+        po, no, pi, ni,
+        tot_out, tot_in,
+        signed_out, signed_in,
+        pos_out_rate, pos_in_rate,
+        overall_pos_rate
     ]
 
 feature_names = [
@@ -158,29 +184,25 @@ y_data = []
 nodes_ordered = []
 
 for node in all_nodes:
-    features = get_features(node)
-    label    = remapped_partition.get(node, 0)
-    X_data.append(features)
-    y_data.append(label)
+    X_data.append(get_features(node))
+    y_data.append(remapped_partition.get(node, 0))
     nodes_ordered.append(node)
 
 X = np.array(X_data, dtype=np.float32)
 y = np.array(y_data, dtype=np.int32)
 
 print(f"    Feature matrix shape : {X.shape}")
-print(f"    Label distribution   :")
+print(f"    Label distribution:")
 unique, counts = np.unique(y, return_counts=True)
 for u, c in zip(unique, counts):
     print(f"      Community {u:>3} : {c:>6,} nodes  ({c/n*100:.1f}%)")
 
-# ── 5. TRAIN LOGISTIC REGRESSION ─────────────────────────────
-print("\n[5] Training Logistic Regression classifier...")
+# ── 6. TRAIN LOGISTIC REGRESSION ─────────────────────────────
+print("\n[6] Training Logistic Regression classifier...")
 
-# Scale features
-scaler  = StandardScaler()
+scaler   = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# Train / test split — stratified to preserve class balance
 X_train, X_test, y_train, y_test = train_test_split(
     X_scaled, y,
     test_size=0.2,
@@ -188,33 +210,31 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y
 )
 
-print(f"    Train size : {len(X_train):,}")
-print(f"    Test size  : {len(X_test):,}")
+print(f"    Train : {len(X_train):,}  |  Test : {len(X_test):,}")
 
 clf = LogisticRegression(
     max_iter=1000,
     random_state=RANDOM_SEED,
-    class_weight="balanced",   # handles community size imbalance
+    class_weight="balanced",
     solver="lbfgs",
     multi_class="multinomial"
 )
 clf.fit(X_train, y_train)
 
-y_pred    = clf.predict(X_test)
-accuracy  = accuracy_score(y_test, y_pred)
-report    = classification_report(y_test, y_pred)
+y_pred   = clf.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+report   = classification_report(y_test, y_pred)
 
 print(f"\n    Test Accuracy : {accuracy:.4f}  ({accuracy*100:.2f}%)")
 print(f"\n    Classification Report:")
 print(report)
 
-# Predict community for ALL nodes using the trained classifier
+# Predict community for all nodes
 y_all_pred = clf.predict(X_scaled)
 
-# ── 6. COMMUNITY QUALITY SCORING ─────────────────────────────
-print("\n[6] Scoring communities...")
+# ── 7. COMMUNITY QUALITY SCORING ─────────────────────────────
+print("\n[7] Scoring communities...")
 
-# Build community membership from classifier predictions
 predicted_communities = {}
 for node, label in zip(nodes_ordered, y_all_pred):
     predicted_communities.setdefault(int(label), set()).add(node)
@@ -263,22 +283,21 @@ community_scores = score_communities(predicted_communities, G_signed)
 print("\n    Top 10 Communities by Quality Score:")
 print(community_scores.head(10).to_string(index=False))
 
-# ── 7. FEATURE IMPORTANCE ────────────────────────────────────
-print("\n[7] Feature importance (mean absolute coefficient across classes):")
+# ── 8. FEATURE IMPORTANCE ────────────────────────────────────
+print("\n[8] Feature importance:")
 importance = np.abs(clf.coef_).mean(axis=0)
 feat_imp   = sorted(zip(feature_names, importance),
                     key=lambda x: x[1], reverse=True)
 for fname, imp in feat_imp:
     print(f"    {fname:<22} : {imp:.4f}")
 
-# ── 8. SAVE OUTPUTS ──────────────────────────────────────────
-print("\n[8] Saving outputs...")
+# ── 9. SAVE OUTPUTS ──────────────────────────────────────────
+print("\n[9] Saving outputs...")
 
-# Community assignments — one row per node
 assignments = pd.DataFrame({
-    "node"                   : nodes_ordered,
-    "label_prop_community"   : y_data,
-    "predicted_community"    : y_all_pred
+    "node"                : nodes_ordered,
+    "infomap_community"   : y_data,
+    "predicted_community" : y_all_pred
 })
 
 assignments.to_csv(
@@ -288,13 +307,12 @@ community_scores.to_csv(
     os.path.join(COMMUNITY_DIR, "community_scores.csv"), index=False
 )
 
-# Save classifier report
 report_path = os.path.join(COMMUNITY_DIR, "classifier_report.txt")
 with open(report_path, "w") as f:
     f.write(f"Test Accuracy: {accuracy:.4f}\n\n")
     f.write("Classification Report:\n")
     f.write(report)
-    f.write("\n\nFeature Importance (mean abs coefficient):\n")
+    f.write("\n\nFeature Importance:\n")
     for fname, imp in feat_imp:
         f.write(f"  {fname:<22} : {imp:.4f}\n")
 
