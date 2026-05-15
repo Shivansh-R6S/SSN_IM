@@ -1,18 +1,4 @@
-"""
-STEP 2 — Community Detection using Infomap + Logistic Regression
-Slashdot Signed Social Network
 
-Approach:
-  1. Infomap on positive-only directed subgraph
-  2. Extract node-level structural features
-  3. Train Logistic Regression to predict community membership
-  4. Score communities by quality
-
-Output:
-  outputs/community/community_assignments.csv
-  outputs/community/community_scores.csv
-  outputs/community/classifier_report.txt
-"""
 
 import pandas as pd
 import numpy as np
