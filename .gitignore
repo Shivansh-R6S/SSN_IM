@@ -1,0 +1,6 @@
+.env
+data/
+outputs/
+ssn_env/
+Modified Datasets/
+__pycahce__/
