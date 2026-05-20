@@ -83,7 +83,7 @@ def compute_scores(node):
     # Seed score: risk-return ratio with eoe bonus
     # Small epsilon avoids division by zero
     epsilon    = 1e-9
-    seed_score = (opportunity + 0.1 * eoe_bonus) / (danger + epsilon)
+    seed_score = opportunity + 0.1 * eoe_bonus - 0.5 * danger
 
     return {
         "node"           : node,

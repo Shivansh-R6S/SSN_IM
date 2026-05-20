@@ -23,7 +23,8 @@ SEED_BUDGET  = 10       # k — number of seed nodes to select
 DECAY_ALPHA  = 0.5      # SAP attenuation parameter
 SIM_RUNS     = 100      # Monte Carlo simulation runs for SAP
 SCORE_THRESH = 0.0      # SAP score threshold to count a node as activated
-GIANT_THRESH = 0.001    # PageRank threshold for sleeping giant detection
+GIANT_THRESH = 0.005    # PageRank threshold for sleeping giant detection
+SEED_BUDGET  = 20
 
 # ── CREATE DIRECTORIES IF THEY DON'T EXIST ───────────────────
 for d in [DATA_DIR, COMMUNITY_DIR, SCORING_DIR, SEEDS_DIR, EVAL_DIR, LOG_DIR]:
