@@ -446,4 +446,3 @@ with open(report_path, "w") as f:
 print(f"  community_assignments.csv: {len(assignments):,} nodes")
 print(f"  community_scores.csv     : {len(community_scores)} communities")
 print(f"  classifier_report.txt    : saved")
-print("\nStep 2 v2 complete. Ready for Step 3.")

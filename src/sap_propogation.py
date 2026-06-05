@@ -38,15 +38,7 @@ all_nodes = sorted(set(df["from_node"]) | set(df["to_node"]))
 print(f"  Nodes: {len(all_nodes):,}")
 
 def run_sap(seed_nodes, adj, alpha, score_threshold):
-    """
-    Run SAP from seed nodes using BFS-style propagation.
-
-    Each message carries (arriving_sign, weight).
-    arriving_sign = product of all edge signs along the path.
-    weight = alpha^(number of times this node has been visited).
-
-    Returns dict: node -> final SAP score
-    """
+    
     scores         = defaultdict(float)
     arrival_counts = defaultdict(int)
 

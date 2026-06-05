@@ -8,7 +8,7 @@ DATA_DIR   = os.path.join(BASE_DIR, "data")
 OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 LOG_DIR    = os.path.join(BASE_DIR, "logs")
 
-FILE_PATH  = os.path.join(DATA_DIR, "soc-sign-Slashdot081106.txt")
+FILE_PATH  = os.path.join(DATA_DIR, "soc-sign-Slashdot090221.txt")
 
 # ── OUTPUT SUBDIRECTORIES ────────────────────────────────────
 COMMUNITY_DIR  = os.path.join(OUTPUT_DIR, "community")
@@ -25,6 +25,7 @@ SIM_RUNS     = 100      # Monte Carlo simulation runs for SAP
 SCORE_THRESH = 0.0      # SAP score threshold to count a node as activated
 GIANT_THRESH = 0.005    # PageRank threshold for sleeping giant detection
 SEED_BUDGET  = 20
+DATASET_NAME = "Slashdot"
 
 # ── CREATE DIRECTORIES IF THEY DON'T EXIST ───────────────────
 for d in [DATA_DIR, COMMUNITY_DIR, SCORING_DIR, SEEDS_DIR, EVAL_DIR, LOG_DIR]:

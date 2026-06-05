@@ -7,7 +7,7 @@ from collections import Counter
 import warnings
 warnings.filterwarnings('ignore')
 
-FILE_PATH = r"D:\Research Internship\Signed Social Network\SSN_IM\Modified Datasets\soc-sign-Slashdot081106.txt"
+FILE_PATH = r"D:\Research Internship\Signed Social Network\SSN_IM\Modified Datasets\soc-sign-Slashdot090221.txt"
 
 print("=" * 60)
 print("STEP 1 — LOADING AND EXPLORING THE SLASHDOT DATASET")
